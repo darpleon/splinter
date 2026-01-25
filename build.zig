@@ -39,4 +39,20 @@ pub fn build(b: *std.Build) !void {
     emcc_run.addArtifactArg(lib);
 
     b.getInstallStep().dependOn(&emcc_run.step);
+
+    const run_step = b.step("run", "Serve the web page");
+
+    const bun_path = b.findProgram(&.{"bun"}, &.{}) catch {
+        const fail_msg = b.addFail(
+            \\This step requires 'bun' to serve the application.
+            \\Install it from https://bun.sh, or serve manually with the tool of your choice.
+        );
+        run_step.dependOn(&fail_msg.step);
+        return;
+    };
+
+    const serve_cmd = b.addSystemCommand(&.{ bun_path, "serve.ts" });
+
+    serve_cmd.step.dependOn(b.getInstallStep());
+    run_step.dependOn(&serve_cmd.step);
 }
