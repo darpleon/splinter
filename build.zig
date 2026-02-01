@@ -34,7 +34,7 @@ pub fn build(b: *std.Build) !void {
     _ = emcc_run.addArg(b.fmt("-o{s}/index.html", .{bin_path}));
     emcc_run.addPrefixedFileArg("--shell-file=", b.path("www/shell.html"));
     emcc_run.addArg("--use-port=emdawnwebgpu");
-    emcc_run.addArg("-sASYNCIFY");
+    // emcc_run.addArg("-sASYNCIFY");
 
     emcc_run.addArtifactArg(lib);
 
