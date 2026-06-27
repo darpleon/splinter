@@ -6,7 +6,7 @@ const c = @cImport({
     @cInclude("webgpu/webgpu.h");
 });
 
-fn toWGPUStringView(slice: []const u8) c.WGPUStringView {
+fn wstr(slice: []const u8) c.WGPUStringView {
     return .{ .data = slice.ptr, .length = slice.len };
 }
 
@@ -85,14 +85,36 @@ fn configureSurface() void {
 
     c.wgpuQueueWriteBuffer(GPUContext.queue, s.uniform_buffer, 0, &ubo_data, @sizeOf(Uniforms));
 
-    render();
+    Orchestrator.requestFrame();
 }
+
+
+const Orchestrator = struct {
+    var frameRequested: bool = false;
+
+    pub fn requestFrame() void {
+        if (!frameRequested) {
+            _ = c.emscripten_request_animation_frame(frame, null);
+            frameRequested = true;
+        }
+    }
+
+    export fn frame(time: f64, userdata: ?*anyopaque) callconv(.c) bool {
+        _ = userdata;
+        _ = time;
+        render();
+        frameRequested = false;
+        std.log.info("frame", .{});
+        return false;
+    }
+};
 
 export fn onResize(event_type: c_int, ui_event: [*c]const c.EmscriptenUiEvent, userdata: ?*anyopaque) callconv(.c) bool {
     _ = event_type;
     _ = ui_event;
     _ = userdata;
     configureSurface();
+    Orchestrator.requestFrame();
     return false;
 }
 
@@ -184,11 +206,11 @@ const Shaders = struct {
         const shader_code = @embedFile("shader/colored_vertices.wgsl");
         var wgsl_source = c.WGPUShaderSourceWGSL{
             .chain = .{ .next = null, .sType = c.WGPUSType_ShaderSourceWGSL },
-            .code = toWGPUStringView(shader_code),
+            .code = wstr(shader_code),
         };
         const shader_desc = c.WGPUShaderModuleDescriptor{
             .nextInChain = @ptrCast(&wgsl_source),
-            .label = toWGPUStringView("colored_vertices_shader"),
+            .label = wstr("colored_vertices_shader"),
         };
         colored_vertices = c.wgpuDeviceCreateShaderModule(device, &shader_desc);
 
@@ -274,7 +296,7 @@ const Pipelines = struct {
 
         const vertex: c.WGPUVertexState = .{
             .module = Shaders.colored_vertices,
-            .entryPoint = toWGPUStringView("vs_main"),
+            .entryPoint = wstr("vs_main"),
             .bufferCount = 1,
             .buffers = &VertexBufferLayouts.colored_vertices,
         };
@@ -297,7 +319,7 @@ const Pipelines = struct {
         const fragment_state: c.WGPUFragmentState = .{
             .nextInChain = null,
             .module = Shaders.colored_vertices,
-            .entryPoint = toWGPUStringView("fs_main"),
+            .entryPoint = wstr("fs_main"),
             .constantCount = 0,
             .constants = null,
             .targetCount = 1,
@@ -306,7 +328,7 @@ const Pipelines = struct {
 
         const pipeline_desc: c.WGPURenderPipelineDescriptor = .{
             .nextInChain = null,
-            .label = toWGPUStringView("basic_pipeline"),
+            .label = wstr("basic_pipeline"),
             .layout = PipelineLayouts.basic_2d,
             .vertex = vertex,
             .primitive = primitive,
@@ -343,6 +365,10 @@ export fn onDeviceRequestEnded(
 
     Pipelines.init(device);
 
+    setupScene();
+}
+
+pub fn setupScene() void {
     const vertices = [_]Vertex{
         .{ .position = .{ 0.0, 0.5 }, .color = .{ 1.0, 0.0, 0.0 } },
         .{ .position = .{ -0.5, -0.5 }, .color = .{ 0.0, 1.0, 0.0 } },
@@ -351,19 +377,19 @@ export fn onDeviceRequestEnded(
 
     const vertex_buffer_desc = c.WGPUBufferDescriptor{
         .nextInChain = null,
-        .label = toWGPUStringView("vertex_buffer"),
+        .label = wstr("vertex_buffer"),
         .usage = c.WGPUBufferUsage_Vertex | c.WGPUBufferUsage_CopyDst,
         .size = @sizeOf(@TypeOf(vertices)),
         .mappedAtCreation = @intFromBool(false),
     };
-    const vertex_buffer = c.wgpuDeviceCreateBuffer(device, &vertex_buffer_desc);
+    const vertex_buffer = c.wgpuDeviceCreateBuffer(GPUContext.device, &vertex_buffer_desc);
     const uniform_buffer_desc = c.WGPUBufferDescriptor{
-        .label = toWGPUStringView("uniform_buffer"),
+        .label = wstr("uniform_buffer"),
         .usage = c.WGPUBufferUsage_Uniform | c.WGPUBufferUsage_CopyDst,
         .size = @sizeOf(Uniforms),
         .mappedAtCreation = @intFromBool(false),
     };
-    const uniform_buffer = c.wgpuDeviceCreateBuffer(device, &uniform_buffer_desc);
+    const uniform_buffer = c.wgpuDeviceCreateBuffer(GPUContext.device, &uniform_buffer_desc);
 
     const bg_entry = c.WGPUBindGroupEntry{
         .binding = 0,
@@ -372,7 +398,7 @@ export fn onDeviceRequestEnded(
         .size = @sizeOf(Uniforms),
     };
 
-    const bind_group = c.wgpuDeviceCreateBindGroup(device, &.{
+    const bind_group = c.wgpuDeviceCreateBindGroup(GPUContext.device, &.{
         .layout = BindGroupLayouts.canvas_scale,
         .entryCount = 1,
         .entries = &bg_entry,
@@ -381,7 +407,7 @@ export fn onDeviceRequestEnded(
     GPUContext.surface = c.wgpuInstanceCreateSurface(GPUContext.instance, &.{
         .nextInChain = @ptrCast(@constCast(&c.WGPUEmscriptenSurfaceSourceCanvasHTMLSelector{
             .chain = .{ .next = null, .sType = c.WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector },
-            .selector = toWGPUStringView("#canvas"),
+            .selector = wstr("#canvas"),
         })),
     });
 
